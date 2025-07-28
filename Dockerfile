@@ -40,10 +40,10 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
 
 # Install only Prisma CLI for runtime
-RUN pnpm add prisma @prisma/client --global
+RUN npm install -g prisma
 
 # Create startup script
-RUN echo '#!/bin/sh\necho "Generating Prisma client..."\nprisma generate\necho "Starting application..."\nexec node server.js' > /app/start.sh
+RUN echo '#!/bin/sh\necho "Generating Prisma client..."\nnpx prisma generate\necho "Starting application..."\nexec node server.js' > /app/start.sh
 RUN chmod +x /app/start.sh
 
 # Create directories for volumes
