@@ -1,0 +1,9 @@
+-- AlterTable
+ALTER TABLE "v_volume_forecast" ALTER COLUMN "volumeTypeId" DROP NOT NULL,
+ALTER COLUMN "currency" DROP NOT NULL,
+ALTER COLUMN "currencyId" DROP NOT NULL,
+ALTER COLUMN "eventRatio" DROP NOT NULL,
+ALTER COLUMN "volumeDriverId" DROP NOT NULL,
+ALTER COLUMN "updateDtm" DROP NOT NULL,
+ALTER COLUMN "linkedCategoryType" DROP NOT NULL,
+ALTER COLUMN "includeSummarySwt" DROP NOT NULL;

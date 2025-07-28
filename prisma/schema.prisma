@@ -1,0 +1,328 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Core application management tables
+model Environment {
+  id                String    @id @default(cuid())
+  name              String    @unique
+  bigqueryProjectId String    // Extracted from JSON credentials
+  bigqueryDataset   String    // Dynamically detected during connection
+  bigqueryCredentials Json?   // Encrypted JSON credentials
+  ukgProUrl String?
+  ukgProClientId String?
+  ukgProClientSecret String?
+  ukgProAppKey String?
+  ukgProUsername String?
+  ukgProPassword String?
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  
+  forecastRuns      ForecastRun[]
+  forecastComparisonModels ForecastComparisonModel[]
+  
+  @@map("environments")
+}
+
+model ForecastModel {
+  id          String    @id @default(cuid())
+  name        String
+  ukgModelId  String?
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  
+  forecastRuns ForecastRun[]
+  
+  @@map("forecast_models")
+}
+
+// New hierarchical forecast comparison structure
+model ForecastComparisonModel {
+  id              String                  @id @default(cuid())
+  name            String                  @unique
+  description     String?
+  environmentId   String
+  period_start    DateTime
+  period_end      DateTime
+  status          ComparisonModelStatus   @default(DRAFT)
+  metadata        Json?
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  
+  environment     Environment             @relation(fields: [environmentId], references: [id])
+  actualsDataset  ActualsDataset?
+  forecastDatasets ForecastDataset[]
+  comparisonRuns  ComparisonRun[]
+  
+  @@map("forecast_comparison_models")
+}
+
+model ActualsDataset {
+  id                  String          @id @default(cuid())
+  comparisonModelId   String          @unique
+  name                String
+  dataSource          DataSourceType
+  bigqueryTable       String?
+  uploadedFile        String?
+  recordCount         Int?
+  dateRange           Json?
+  loadStatus          DataLoadStatus  @default(PENDING)
+  loadedAt            DateTime?
+  metadata            Json?
+  createdAt           DateTime        @default(now())
+  
+  comparisonModel     ForecastComparisonModel @relation(fields: [comparisonModelId], references: [id], onDelete: Cascade)
+  actualVolumes       VActualVolume[]
+  
+  @@map("actuals_datasets")
+}
+
+model ForecastDataset {
+  id                  String              @id @default(cuid())
+  comparisonModelId   String
+  name                String
+  modelType           ForecastModelType
+  dataSource          DataSourceType
+  bigqueryTable       String?
+  ukgDimensionsJobId  String?
+  uploadedFile        String?
+  recordCount         Int?
+  dateRange           Json?
+  loadStatus          DataLoadStatus      @default(PENDING)
+  loadedAt            DateTime?
+  metadata            Json?
+  createdAt           DateTime            @default(now())
+  
+  comparisonModel     ForecastComparisonModel @relation(fields: [comparisonModelId], references: [id], onDelete: Cascade)
+  volumeForecasts     VVolumeForecast[]
+  comparisonResults   ComparisonResult[]
+  
+  @@map("forecast_datasets")
+}
+
+model ComparisonRun {
+  id                  String          @id @default(cuid())
+  comparisonModelId   String
+  name                String
+  selectedForecastIds String[]
+  filters             Json?
+  status              RunStatus       @default(PENDING)
+  startTime           DateTime?
+  endTime             DateTime?
+  accuracyMetrics     Json?
+  statisticalAnalysis Json?
+  errorMessage        String?
+  createdAt           DateTime        @default(now())
+  
+  comparisonModel     ForecastComparisonModel @relation(fields: [comparisonModelId], references: [id], onDelete: Cascade)
+  results             ComparisonResult[]
+  
+  @@map("comparison_runs")
+}
+
+model ComparisonResult {
+  id                  String          @id @default(cuid())
+  comparisonRunId     String
+  forecastDatasetId   String
+  orgId               Int
+  partitionDate       DateTime
+  actualValue         Float
+  forecastValue       Float
+  absoluteError       Float
+  percentageError     Float
+  accuracyScore       Float
+  createdAt           DateTime        @default(now())
+  
+  comparisonRun       ComparisonRun   @relation(fields: [comparisonRunId], references: [id], onDelete: Cascade)
+  forecastDataset     ForecastDataset @relation(fields: [forecastDatasetId], references: [id], onDelete: Cascade)
+  
+  @@index([comparisonRunId, forecastDatasetId])
+  @@index([orgId, partitionDate])
+  @@map("comparison_results")
+}
+
+model ForecastRun {
+  id              String      @id @default(cuid())
+  environmentId   String
+  modelId         String
+  dimensionsJobId String?     // Reference to Dimensions job
+  bigqueryProjectId String    // Project ID used for this run
+  startTime       DateTime
+  endTime         DateTime?
+  status          RunStatus   @default(PENDING)
+  dataPoints      Int?        // Number of data points extracted
+  metadata        Json?
+  createdAt       DateTime    @default(now())
+  
+  environment     Environment @relation(fields: [environmentId], references: [id])
+  model           ForecastModel @relation(fields: [modelId], references: [id])
+  
+  // Related forecast data
+  volumeForecasts VVolumeForecast[]
+  actualVolumes   VActualVolume[]
+  
+  @@map("forecast_runs")
+}
+
+// BigQuery table: {project_id}.superretailgroup_detail.vVolumeForecast (with JOIN to vBusinessStructure)
+model VVolumeForecast {
+  id                  String    @id @default(cuid())
+  runId               String?   // Link to forecast run (optional for new structure)
+  forecastDatasetId   String?   // Link to forecast dataset (new structure)
+  
+  // Core forecast fields from vVolumeForecast
+  orgId               Int
+  partitionDate       DateTime
+  volumeType          String    // STRING(65535)
+  dailyAmount         Float
+  volumeDriver        String    // STRING(65535)
+  
+  // Business structure fields from JOIN with vBusinessStructure
+  brand               String?   // orgBreak2
+  region              String?   // orgBreak3
+  area                String?   // orgBreak4
+  site                String?   // orgBreak6
+  department          String?   // orgBreak7
+  category            String?   // orgBreak0
+  contextName         String?   // contextName
+  orgPathTxt          String?   // orgPathTxt
+  
+  syncedAt            DateTime  @default(now())
+  
+  run                 ForecastRun? @relation(fields: [runId], references: [id])
+  forecastDataset     ForecastDataset? @relation(fields: [forecastDatasetId], references: [id])
+  
+  @@index([runId, partitionDate])
+  @@index([forecastDatasetId, partitionDate])
+  @@index([orgId, partitionDate])
+  @@index([partitionDate, volumeType])
+  @@index([brand, region, area])
+  @@index([site, department])
+  @@map("v_volume_forecast")
+}
+
+// BigQuery table: {project_id}.superretailgroup_detail.vActualVolume (with JOIN to vBusinessStructure)
+model VActualVolume {
+  id                  String    @id @default(cuid())
+  runId               String?   // Link to forecast run (optional for new structure)
+  actualsDatasetId    String?   // Link to actuals dataset (new structure)
+  
+  // Core actuals fields from vActualVolume
+  orgId               Int
+  partitionDate       DateTime
+  dailyAmount         Float
+  volumeDriver        String    // STRING(65535)
+  
+  // Business structure fields from JOIN with vBusinessStructure
+  brand               String?   // orgBreak2
+  region              String?   // orgBreak3
+  area                String?   // orgBreak4
+  site                String?   // orgBreak6
+  department          String?   // orgBreak7
+  category            String?   // orgBreak0
+  contextName         String?   // contextName
+  orgPathTxt          String?   // orgPathTxt
+  
+  syncedAt            DateTime  @default(now())
+  
+  run                 ForecastRun? @relation(fields: [runId], references: [id])
+  actualsDataset      ActualsDataset? @relation(fields: [actualsDatasetId], references: [id])
+  
+  @@index([runId, partitionDate])
+  @@index([actualsDatasetId, partitionDate])
+  @@index([orgId, partitionDate])
+  @@index([partitionDate, volumeDriver])
+  @@index([brand, region, area])
+  @@index([site, department])
+  @@map("v_actual_volume")
+}
+
+// BigQuery table: {project_id}.superretailgroup_detail.vCalendarDate
+model VCalendarDate {
+  id                  String    @id @default(cuid())
+  calendarDate        DateTime  @unique
+  calendarYear        Int
+  calendarMonth       Int
+  calendarDay         Int
+  calendarWeek        Int
+  calendarQuarter     Int
+  dayOfWeek           Int
+  dayOfYear           Int
+  isWeekend           Boolean
+  isHoliday           Boolean
+  holidayName         String?   // STRING(65535)
+  syncedAt            DateTime  @default(now())
+  
+  @@index([calendarDate])
+  @@index([calendarYear, calendarMonth])
+  @@index([calendarWeek])
+  @@map("v_calendar_date")
+}
+
+// BigQuery table: {project_id}.superretailgroup_detail.vFiscalCalendar
+model VFiscalCalendar {
+  id                  String    @id @default(cuid())
+  fiscalDate          DateTime  @unique
+  fiscalYear          Int
+  fiscalMonth         Int
+  fiscalDay           Int
+  fiscalWeek          Int
+  fiscalQuarter       Int
+  fiscalPeriod        Int
+  syncedAt            DateTime  @default(now())
+  
+  @@index([fiscalDate])
+  @@index([fiscalYear, fiscalMonth])
+  @@index([fiscalWeek])
+  @@map("v_fiscal_calendar")
+}
+
+enum RunStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ComparisonModelStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+  COMPLETED
+}
+
+enum DataSourceType {
+  BIGQUERY
+  UKG_DIMENSIONS
+  FILE_UPLOAD
+  API
+}
+
+enum DataLoadStatus {
+  PENDING
+  QUEUED
+  LOADING
+  PROCESSING
+  COMPLETED
+  FAILED
+  VALIDATING
+}
+
+enum ForecastModelType {
+  UKG_DIMENSIONS
+  HISTORICAL_AVERAGE
+  MACHINE_LEARNING
+  SEASONAL_NAIVE
+  EXPONENTIAL_SMOOTHING
+  ARIMA
+  PROPHET
+  CUSTOM
+} 

@@ -1,0 +1,263 @@
+# Sales Forecast Comparison App - Cursor Rules
+
+## Project Overview
+Building a Next.js web application for comparing sales forecast accuracy across multiple ML models. Handles massive datasets (2.8+ billion data points) with real-time BigQuery integration and UKG Dimensions orchestration.
+
+## Tech Stack Requirements
+
+### Core Framework - STRICTLY ENFORCE
+- Next.js 14+ with App Router (src/app directory structure)
+- TypeScript for all files
+- PostgreSQL database: 192.168.1.11:5432, db: sales, user: gbarr1, password: Quantum2020
+- Prisma ORM with connection pooling
+- shadcn/ui components ONLY (no other UI libraries)
+- Tailwind CSS ONLY (no inline styles, no styled-components, no CSS modules)
+
+### Required Dependencies
+```json
+{
+  "@prisma/client": "^5.7.0",
+  "next": "^14.0.0",
+  "react": "^18.0.0",
+  "typescript": "^5.0.0",
+  "@tanstack/react-query": "^5.14.2",
+  "framer-motion": "^10.16.16",
+  "react-hook-form": "^7.48.2",
+  "zod": "^3.22.4",
+  "zustand": "^4.4.7",
+  "clsx": "^2.0.0",
+  "recharts": "^2.8.0",
+  "lucide-react": "^0.294.0",
+  "@google-cloud/bigquery": "^7.3.0",
+  "bull": "^4.12.0",
+  "redis": "^4.6.11",
+  "class-variance-authority": "^0.7.0",
+  "tailwind-merge": "^2.2.0"
+}
+```
+
+## V0 Integration Rules
+
+### Design Foundation
+- V0 components in root directory are DESIGN REFERENCE ONLY
+- Use V0 visual patterns but build completely functional components
+- Extract design tokens (colors, spacing, typography) from V0 for consistency
+- Components referenced:
+  - `analytics-dashboard.tsx` - Advanced analytics interface
+  - `executive-dashboard.tsx` - High-level KPI dashboard
+  - `operational-dashboard.tsx` - Real-time monitoring
+  - `app-sidebar.tsx` - Navigation structure
+  - `theme-provider.tsx` - Theme system
+
+### Enhancement Strategy
+- Maintain V0 visual aesthetic while adding enterprise functionality
+- Add loading states, error boundaries, and accessibility features
+- Implement real data connections and proper state management
+- Use shadcn/ui components that match V0 styling patterns
+
+## BigQuery Integration - CRITICAL REQUIREMENTS
+
+### Dynamic Project Configuration
+- Project ID MUST be extracted from uploaded JSON credentials
+- NEVER hardcode project IDs
+- Fixed dataset: `superretailgroup_detail` (only dataset to use)
+- Validate credentials.project_id exists before proceeding
+
+### Required BigQuery Tables
+- `vVolumeForecast` - Main forecast data
+- `vActualVolume` - Actual performance data
+- `vBusinessStructure` - Organization hierarchy (25 org break levels)
+- `vCalendarDate` - Standard calendar
+- `vFiscalCalendar` - Fiscal calendar
+
+### BigQuery Service Pattern
+```typescript
+class BigQueryService {
+  private projectId: string
+  private readonly DATASET = 'superretailgroup_detail'
+  
+  async connectWithCredentials(credentials: object) {
+    this.projectId = credentials.project_id
+    // Validate and initialize BigQuery client
+  }
+  
+  // All queries use: `${this.projectId}.${this.DATASET}.tableName`
+}
+```
+
+## Database Schema Rules
+
+### Prisma Schema Requirements
+- Use exact field mappings from BigQuery tables
+- Include all orgBreak1-25 fields with descriptions
+- Add proper indexes for massive dataset performance
+- Use `syncedAt` timestamps for all BigQuery-sourced data
+- Store BigQuery project ID dynamically in Environment model
+
+### Required Models
+- Environment (with dynamic bigqueryProjectId)
+- ForecastRun (links to multiple data tables)
+- VVolumeForecast (exact BigQuery mapping)
+- VActualVolume (exact BigQuery mapping)
+- VBusinessStructure (25 org break levels)
+- VCalendarDate, VFiscalCalendar
+
+## Component Architecture Rules
+
+### File Structure
+```
+src/
+├── app/
+│   ├── api/ (API routes)
+│   ├── dashboard/ (dashboard variants)
+│   ├── environments/ (environment management)
+│   ├── forecasts/ (forecast management)
+│   └── models/ (model management)
+├── components/
+│   ├── ui/ (shadcn/ui only)
+│   ├── charts/ (data visualization)
+│   ├── forms/ (React Hook Form + Zod)
+│   ├── dashboard/ (dashboard widgets)
+│   └── layout/ (navigation, headers)
+├── lib/ (utilities, services)
+├── stores/ (Zustand stores)
+├── types/ (TypeScript interfaces)
+└── hooks/ (custom React hooks)
+```
+
+### Component Guidelines
+- Use shadcn/ui components exclusively
+- All forms: React Hook Form + Zod validation
+- State: Zustand for global, React state for local
+- Styling: Tailwind classes only, use cn() utility
+- Icons: Lucide React only
+- Charts: Recharts only
+- Animations: Framer Motion only
+
+## Data Pipeline Rules
+
+### Environment Management
+- Users upload JSON credentials file
+- Extract project_id automatically
+- Test BigQuery connection before saving
+- Encrypt credentials for secure storage
+- Support multiple environments with different project IDs
+
+### Forecast Pipeline
+- Trigger forecast in UKG Dimensions (metadata only)
+- Extract results from BigQuery (data source)
+- Transform and load into PostgreSQL
+- Generate accuracy comparisons and bell curve distributions
+
+## Performance Requirements
+
+### Database Optimization
+- Use connection pooling with Prisma
+- Implement composite indexes for large queries
+- Batch operations for BigQuery data sync
+- Pagination for large datasets in UI
+
+### Query Patterns
+- Always include runId in data queries
+- Use date range filtering for performance
+- Implement orgId filtering for focused analysis
+- Cache frequently accessed comparison data
+
+## UI/UX Standards
+
+### Design Principles
+- Follow V0 design aesthetic closely
+- Dark mode first with system awareness
+- Subtle glassmorphism effects (backdrop-blur)
+- Progressive disclosure for complex data
+- Enterprise-grade professional appearance
+
+### Required Features
+- Bell curve accuracy distribution chart (primary visualization)
+- Real-time job status monitoring
+- Environment switching with global state
+- Forecast run comparison interface
+- Organization hierarchy navigation
+
+### Accessibility Requirements
+- WCAG 2.1 AA compliance
+- Proper ARIA labels and descriptions
+- Keyboard navigation support
+- Focus management for modals
+- Color contrast validation
+
+## Error Handling Standards
+
+### API Error Handling
+- Comprehensive error boundaries
+- Retry mechanisms with exponential backoff
+- User-friendly error messages
+- Proper HTTP status codes
+- Logging for debugging
+
+### BigQuery Error Handling
+- Validate credentials before queries
+- Handle connection timeouts gracefully
+- Clear error messages for query failures
+- Fallback for network issues
+
+## Security Requirements
+
+### Credential Security
+- Encrypt BigQuery JSON credentials
+- Secure credential storage in database
+- Validate all uploaded files
+- Never log credentials or sensitive data
+
+### Data Security
+- Parameterized queries only
+- Input validation on all forms
+- XSS protection
+- CSRF protection for forms
+
+## Development Workflow
+
+### Code Quality
+- TypeScript strict mode enabled
+- ESLint and Prettier configured
+- No any types allowed
+- Comprehensive error handling
+- Unit tests for critical functions
+
+### Git Workflow
+- Feature branches for new functionality
+- Clear commit messages
+- Code review before merging
+- Database migrations tracked
+
+## DON'T DO - AVOID THESE
+
+### Forbidden Practices
+- ❌ NO hardcoded BigQuery project IDs
+- ❌ NO inline CSS or styled-components  
+- ❌ NO UI libraries other than shadcn/ui
+- ❌ NO direct Dimensions data extraction
+- ❌ NO unencrypted credential storage
+- ❌ NO missing TypeScript types
+- ❌ NO custom CSS files (Tailwind only)
+- ❌ NO localStorage usage in components
+
+### Common Mistakes to Avoid
+- Don't create components without proper TypeScript interfaces
+- Don't skip error boundaries around data components
+- Don't forget loading states for async operations
+- Don't hardcode dataset names in queries
+- Don't skip credential validation
+- Don't use multiple UI component libraries
+- Don't create pages without proper layout structure
+
+## Key Success Metrics
+- Sub-2-second dashboard load times
+- 99%+ BigQuery sync success rate
+- WCAG 2.1 AA accessibility compliance
+- Zero hardcoded configuration values
+- 100% TypeScript coverage
+- Proper error handling on all operations
+
+## Remember
+This is an enterprise-grade application handling massive datasets. Prioritize performance, security, and reliability over flashy features. The V0 designs provide the visual direction, but you must build complete functional components with proper error handling, loading states, and data management.

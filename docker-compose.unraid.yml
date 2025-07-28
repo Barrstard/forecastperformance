@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: forecast-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: forecastperformance
+      POSTGRES_USER: forecast_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - /mnt/user/appdata/forecast-performance/postgres:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - forecast-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U forecast_user -d forecastperformance"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    container_name: forecast-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - /mnt/user/appdata/forecast-performance/redis:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - forecast-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  app:
+    image: ghcr.io/barrstard/forecastperformance:latest
+    container_name: forecast-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://forecast_user:${POSTGRES_PASSWORD}@postgres:5432/forecastperformance
+      REDIS_URL: redis://redis:6379
+      NEXTAUTH_URL: ${NEXTAUTH_URL}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      NODE_ENV: production
+    volumes:
+      - /mnt/user/appdata/forecast-performance/uploads:/app/uploads
+      - /mnt/user/appdata/forecast-performance/logs:/app/logs
+    ports:
+      - "3000:3000"
+    networks:
+      - forecast-network
+
+networks:
+  forecast-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
