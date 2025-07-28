@@ -96,7 +96,7 @@ jobs:
         name: unraid-deployment
 
     - name: Deploy to Unraid (webhook)
-      if: secrets.UNRAID_WEBHOOK_URL != ''
+      if: ${{ secrets.UNRAID_WEBHOOK_URL != '' }}
       run: |
         curl -X POST "${{ secrets.UNRAID_WEBHOOK_URL }}" \
           -H "Content-Type: application/json" \
