@@ -38,12 +38,17 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/prisma ./prisma
-RUN mkdir -p ./node_modules
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+
+# Install only Prisma CLI for runtime
+RUN pnpm add prisma @prisma/client --global
+
+# Create startup script
+RUN echo '#!/bin/sh\necho "Generating Prisma client..."\nprisma generate\necho "Starting application..."\nexec node server.js' > /app/start.sh
+RUN chmod +x /app/start.sh
 
 # Create directories for volumes
 RUN mkdir -p /app/uploads /app/logs
-RUN chown nextjs:nodejs /app/uploads /app/logs
+RUN chown nextjs:nodejs /app/uploads /app/logs /app/start.sh
 
 USER nextjs
 
@@ -52,4 +57,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["node", "server.js"]
+CMD ["/app/start.sh"]
