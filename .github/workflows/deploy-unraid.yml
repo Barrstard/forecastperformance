@@ -95,9 +95,5 @@ jobs:
       with:
         name: unraid-deployment
 
-    - name: Deploy to Unraid (webhook)
-      if: ${{ secrets.UNRAID_WEBHOOK_URL != '' }}
-      run: |
-        curl -X POST "${{ secrets.UNRAID_WEBHOOK_URL }}" \
-          -H "Content-Type: application/json" \
-          -d '{"image": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest", "service": "forecast-app"}'
+    - name: Deployment complete
+      run: echo "Docker image built and pushed successfully!"
