@@ -47,22 +47,11 @@ mkdir -p "$APPDATA_PATH"/{postgres,redis,uploads,logs}
 chmod -R 755 "$APPDATA_PATH"
 print_success "Directories created"
 
-# Download deployment files
-print_step "Downloading deployment files..."
+# Change to app directory
 cd "$APPDATA_PATH"
 
-# Download docker-compose file
-print_step "Downloading Docker Compose file from: $REPO_URL/docker-compose.unraid.yml"
-if curl -sf "$REPO_URL/docker-compose.unraid.yml" -o docker-compose.yml; then
-    print_success "Docker Compose file downloaded"
-else
-    print_error "Failed to download Docker Compose file"
-    print_error "URL attempted: $REPO_URL/docker-compose.unraid.yml"
-    print_error "Please check your internet connection and repository access"
-    exit 1
-fi
-
-# Download environment template
+# Download environment template first
+print_step "Downloading environment template..."
 if curl -sf "$REPO_URL/.env.unraid.template" -o .env.template; then
     print_success "Environment template downloaded"
 else
@@ -109,6 +98,23 @@ if netstat -tuln | grep -q ":6379 "; then
     REDIS_PORT=6379
 else
     print_success "No Redis detected - will deploy in container"
+fi
+
+# Decide whether to download static compose file or generate dynamic one
+if [ "$POSTGRES_EXTERNAL" = false ] && [ "$REDIS_EXTERNAL" = false ]; then
+    # Both services will be containerized - use static compose file
+    print_step "Downloading Docker Compose file from: $REPO_URL/docker-compose.unraid.yml"
+    if curl -sf "$REPO_URL/docker-compose.unraid.yml" -o docker-compose.yml; then
+        print_success "Docker Compose file downloaded"
+    else
+        print_error "Failed to download Docker Compose file"
+        print_error "URL attempted: $REPO_URL/docker-compose.unraid.yml"
+        print_error "Please check your internet connection and repository access"
+        exit 1
+    fi
+else
+    # One or both services are external - will generate dynamic compose file later
+    print_success "Will generate dynamic Docker Compose configuration"
 fi
 
 # Create .env file if it doesn't exist
@@ -181,10 +187,11 @@ else
     fi
 fi
 
-# Create dynamic docker-compose configuration
-print_step "Creating docker-compose configuration..."
+# Create dynamic docker-compose configuration only if needed
+if [ "$POSTGRES_EXTERNAL" = true ] || [ "$REDIS_EXTERNAL" = true ]; then
+    print_step "Creating dynamic docker-compose configuration..."
 
-# Build the complete docker-compose content
+    # Build the complete docker-compose content
 COMPOSE_CONTENT="version: '3.8'
 
 services:"
@@ -289,10 +296,13 @@ volumes:
   postgres_data:
     driver: local"
 
-# Write the complete compose file
-echo "$COMPOSE_CONTENT" > docker-compose.yml
+    # Write the complete compose file
+    echo "$COMPOSE_CONTENT" > docker-compose.yml
 
-print_success "Docker Compose configuration created"
+    print_success "Dynamic Docker Compose configuration created"
+else
+    print_success "Using static Docker Compose configuration"
+fi
 
 # Check for docker-compose and install if needed
 if ! command -v docker-compose &> /dev/null; then
