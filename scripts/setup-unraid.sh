@@ -52,10 +52,13 @@ print_step "Downloading deployment files..."
 cd "$APPDATA_PATH"
 
 # Download docker-compose file
+print_step "Downloading Docker Compose file from: $REPO_URL/docker-compose.unraid.yml"
 if curl -sf "$REPO_URL/docker-compose.unraid.yml" -o docker-compose.yml; then
     print_success "Docker Compose file downloaded"
 else
     print_error "Failed to download Docker Compose file"
+    print_error "URL attempted: $REPO_URL/docker-compose.unraid.yml"
+    print_error "Please check your internet connection and repository access"
     exit 1
 fi
 
@@ -120,12 +123,20 @@ else
     WEB_PORT=$(grep NEXTAUTH_URL .env | cut -d':' -f3 || echo "3000")
 fi
 
+# Check for docker-compose and install if needed
+if ! command -v docker-compose &> /dev/null; then
+    print_step "Installing docker-compose..."
+    curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
+    print_success "docker-compose installed"
+fi
+
 # Pull and start containers
 print_step "Pulling Docker images..."
-docker compose pull
+docker-compose pull
 
 print_step "Starting containers..."
-docker compose up -d
+docker-compose up -d
 
 # Wait for database to be ready
 print_step "Waiting for database to be ready..."
@@ -137,11 +148,17 @@ if docker exec forecast-app npx prisma db push 2>/dev/null; then
     print_success "Database initialized"
 else
     print_warning "Database initialization may have failed - check logs if app doesn't work"
+    print_step "Trying alternative database initialization..."
+    if docker exec forecast-app npx prisma migrate deploy 2>/dev/null; then
+        print_success "Database migrated successfully"
+    else
+        print_warning "Database migration also failed - manual intervention may be required"
+    fi
 fi
 
 # Final status check
 print_step "Checking container status..."
-if docker compose ps | grep -q "Up"; then
+if docker-compose ps | grep -q "Up"; then
     print_success "Containers are running!"
     echo ""
     echo "🎉 Deployment Complete!"
