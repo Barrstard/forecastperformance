@@ -244,19 +244,25 @@ COMPOSE_CONTENT="$COMPOSE_CONTENT
     restart: unless-stopped"
 
 # Add depends_on only for containerized services  
+DEPENDS_ON_SECTION=""
 if [ "$POSTGRES_EXTERNAL" = false ] || [ "$REDIS_EXTERNAL" = false ]; then
-    COMPOSE_CONTENT="$COMPOSE_CONTENT
-    depends_on:"
+    DEPENDS_ON_SECTION="    depends_on:"
     if [ "$POSTGRES_EXTERNAL" = false ]; then
-        COMPOSE_CONTENT="$COMPOSE_CONTENT
+        DEPENDS_ON_SECTION="$DEPENDS_ON_SECTION
       postgres:
         condition: service_healthy"
     fi
     if [ "$REDIS_EXTERNAL" = false ]; then
-        COMPOSE_CONTENT="$COMPOSE_CONTENT
+        DEPENDS_ON_SECTION="$DEPENDS_ON_SECTION
       redis:
         condition: service_healthy"
     fi
+fi
+
+# Add the depends_on section to compose content
+if [ ! -z "$DEPENDS_ON_SECTION" ]; then
+    COMPOSE_CONTENT="$COMPOSE_CONTENT
+$DEPENDS_ON_SECTION"
 fi
 
 # Continue with app configuration
