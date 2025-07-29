@@ -70,25 +70,63 @@ else
     exit 1
 fi
 
-# Check for port conflicts first
-print_step "Checking for port conflicts..."
+# Detect existing services
+print_step "Detecting existing services..."
 
-# Check PostgreSQL port (5432)
+# Check for existing PostgreSQL
+POSTGRES_EXTERNAL=false
+POSTGRES_HOST="postgres"
+POSTGRES_PORT=5432
+POSTGRES_USER="gbarr1"
+POSTGRES_DB="sales"
+
 if netstat -tuln | grep -q ":5432 "; then
-    print_warning "Port 5432 (PostgreSQL) is already in use"
-    read -p "Enter alternative PostgreSQL port (default: 5433): " POSTGRES_PORT
-    POSTGRES_PORT=${POSTGRES_PORT:-5433}
+    print_warning "PostgreSQL detected on port 5432"
+    read -p "Use existing PostgreSQL instance? (y/N): " USE_EXISTING_PG
+    if [[ "$USE_EXISTING_PG" =~ ^[Yy]$ ]]; then
+        POSTGRES_EXTERNAL=true
+        read -p "PostgreSQL host (default: localhost): " PG_HOST_INPUT
+        POSTGRES_HOST=${PG_HOST_INPUT:-localhost}
+        read -p "PostgreSQL port (default: 5432): " PG_PORT_INPUT
+        POSTGRES_PORT=${PG_PORT_INPUT:-5432}
+        read -p "PostgreSQL username (default: gbarr1): " PG_USER_INPUT
+        POSTGRES_USER=${PG_USER_INPUT:-gbarr1}
+        read -p "PostgreSQL database name (default: sales): " PG_DB_INPUT
+        POSTGRES_DB=${PG_DB_INPUT:-sales}
+        print_success "Will use external PostgreSQL at $POSTGRES_HOST:$POSTGRES_PORT"
+    else
+        print_warning "Will deploy PostgreSQL in container on alternative port"
+        read -p "Enter PostgreSQL container port (default: 5433): " POSTGRES_PORT
+        POSTGRES_PORT=${POSTGRES_PORT:-5433}
+        POSTGRES_HOST="postgres"
+    fi
 else
-    POSTGRES_PORT=5432
+    print_success "No PostgreSQL detected - will deploy in container"
 fi
 
-# Check Redis port (6379)  
+# Check for existing Redis
+REDIS_EXTERNAL=false
+REDIS_HOST="redis"
+REDIS_PORT=6379
+
 if netstat -tuln | grep -q ":6379 "; then
-    print_warning "Port 6379 (Redis) is already in use"
-    read -p "Enter alternative Redis port (default: 6380): " REDIS_PORT
-    REDIS_PORT=${REDIS_PORT:-6380}
+    print_warning "Redis detected on port 6379"
+    read -p "Use existing Redis instance? (y/N): " USE_EXISTING_REDIS
+    if [[ "$USE_EXISTING_REDIS" =~ ^[Yy]$ ]]; then
+        REDIS_EXTERNAL=true
+        read -p "Redis host (default: localhost): " REDIS_HOST_INPUT
+        REDIS_HOST=${REDIS_HOST_INPUT:-localhost}
+        read -p "Redis port (default: 6379): " REDIS_PORT_INPUT
+        REDIS_PORT=${REDIS_PORT_INPUT:-6379}
+        print_success "Will use external Redis at $REDIS_HOST:$REDIS_PORT"
+    else
+        print_warning "Will deploy Redis in container on alternative port"
+        read -p "Enter Redis container port (default: 6380): " REDIS_PORT
+        REDIS_PORT=${REDIS_PORT:-6380}
+        REDIS_HOST="redis"
+    fi
 else
-    REDIS_PORT=6379
+    print_success "No Redis detected - will deploy in container"
 fi
 
 # Create .env file if it doesn't exist
@@ -132,11 +170,17 @@ if [ ! -f ".env" ]; then
         WEB_PORT=${ALT_WEB_PORT:-$((WEB_PORT + 1))}
     fi
     
-    # Update .env file
+    # Update .env file with detected configurations
     sed -i "s/your_secure_postgres_password_here/$POSTGRES_PASSWORD/g" .env
     sed -i "s/your_nextauth_secret_here/$NEXTAUTH_SECRET/g" .env
     sed -i "s/your-unraid-ip/$UNRAID_IP/g" .env
     sed -i "s/3000/$WEB_PORT/g" .env
+    
+    # Update database connection string
+    sed -i "s|postgresql://gbarr1:your_secure_postgres_password_here@postgres:5432/sales|postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB|g" .env
+    
+    # Update Redis URL  
+    sed -i "s|redis://redis:6379|redis://$REDIS_HOST:$REDIS_PORT|g" .env
     
     print_success "Environment configured"
     echo -e "${YELLOW}Your app will be available at: http://$UNRAID_IP:$WEB_PORT${NC}"
@@ -155,20 +199,118 @@ else
     fi
 fi
 
-# Update docker-compose ports (always run this)
-print_step "Updating docker-compose configuration..."
+# Create dynamic docker-compose configuration
+print_step "Creating docker-compose configuration..."
 
-if [ "$WEB_PORT" != "3000" ]; then
-    sed -i "s/3000:3000/$WEB_PORT:3000/g" docker-compose.yml
+# Start with base compose file
+cat > docker-compose.yml << EOF
+version: '3.8'
+
+services:
+EOF
+
+# Add PostgreSQL service if not external
+if [ "$POSTGRES_EXTERNAL" = false ]; then
+    cat >> docker-compose.yml << EOF
+  postgres:
+    image: postgres:15-alpine
+    container_name: forecast-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: $POSTGRES_DB
+      POSTGRES_USER: $POSTGRES_USER
+      POSTGRES_PASSWORD: \${POSTGRES_PASSWORD}
+    volumes:
+      - /mnt/user/appdata/forecast-performance/postgres:/var/lib/postgresql/data
+    ports:
+      - "$POSTGRES_PORT:5432"
+    networks:
+      - forecast-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+EOF
 fi
 
-if [ "$POSTGRES_PORT" != "5432" ]; then
-    sed -i "s/5432:5432/$POSTGRES_PORT:5432/g" docker-compose.yml
+# Add Redis service if not external
+if [ "$REDIS_EXTERNAL" = false ]; then
+    cat >> docker-compose.yml << EOF
+  redis:
+    image: redis:7-alpine
+    container_name: forecast-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - /mnt/user/appdata/forecast-performance/redis:/data
+    ports:
+      - "$REDIS_PORT:6379"
+    networks:
+      - forecast-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+EOF
 fi
 
-if [ "$REDIS_PORT" != "6379" ]; then
-    sed -i "s/6379:6379/$REDIS_PORT:6379/g" docker-compose.yml
+# Add app service (always included)
+cat >> docker-compose.yml << EOF
+  app:
+    image: ghcr.io/barrstard/forecastperformance:latest
+    container_name: forecast-app
+    restart: unless-stopped
+EOF
+
+# Add depends_on only for containerized services  
+if [ "$POSTGRES_EXTERNAL" = false ] || [ "$REDIS_EXTERNAL" = false ]; then
+    cat >> docker-compose.yml << EOF
+    depends_on:
+EOF
+    if [ "$POSTGRES_EXTERNAL" = false ]; then
+        cat >> docker-compose.yml << EOF
+      postgres:
+        condition: service_healthy
+EOF
+    fi
+    if [ "$REDIS_EXTERNAL" = false ]; then
+        cat >> docker-compose.yml << EOF
+      redis:
+        condition: service_healthy
+EOF
+    fi
 fi
+
+# Continue with app configuration
+cat >> docker-compose.yml << EOF
+    environment:
+      DATABASE_URL: postgresql://$POSTGRES_USER:\${POSTGRES_PASSWORD}@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB
+      REDIS_URL: redis://$REDIS_HOST:$REDIS_PORT
+      NEXTAUTH_URL: \${NEXTAUTH_URL}
+      NEXTAUTH_SECRET: \${NEXTAUTH_SECRET}
+      NODE_ENV: production
+    volumes:
+      - /mnt/user/appdata/forecast-performance/uploads:/app/uploads
+      - /mnt/user/appdata/forecast-performance/logs:/app/logs
+    ports:
+      - "$WEB_PORT:3000"
+    networks:
+      - forecast-network
+
+networks:
+  forecast-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+EOF
+
+print_success "Docker Compose configuration created"
 
 # Check for docker-compose and install if needed
 if ! command -v docker-compose &> /dev/null; then
@@ -211,14 +353,22 @@ if docker-compose ps | grep -q "Up"; then
     echo "🎉 Deployment Complete!"
     echo "======================="
     
-    # Get actual ports from existing .env or use defaults
-    ACTUAL_WEB_PORT=$(grep NEXTAUTH_URL .env | cut -d':' -f3 || echo "3000")
-    ACTUAL_POSTGRES_PORT=$(docker-compose ps | grep postgres | grep -o "[0-9]*:5432" | cut -d':' -f1 || echo "5432")
-    ACTUAL_REDIS_PORT=$(docker-compose ps | grep redis | grep -o "[0-9]*:6379" | cut -d':' -f1 || echo "6379")
+    # Get actual ports and show service information
+    ACTUAL_WEB_PORT=$(grep NEXTAUTH_URL .env | cut -d':' -f3 || echo "$WEB_PORT")
     
     echo "📱 Access your app at: http://$UNRAID_IP:$ACTUAL_WEB_PORT"
-    echo "🗄️  PostgreSQL: localhost:$ACTUAL_POSTGRES_PORT"
-    echo "🔴 Redis: localhost:$ACTUAL_REDIS_PORT"
+    
+    if [ "$POSTGRES_EXTERNAL" = true ]; then
+        echo "🗄️  PostgreSQL: External service at $POSTGRES_HOST:$POSTGRES_PORT"
+    else
+        echo "🗄️  PostgreSQL: Container at localhost:$POSTGRES_PORT"
+    fi
+    
+    if [ "$REDIS_EXTERNAL" = true ]; then
+        echo "🔴 Redis: External service at $REDIS_HOST:$REDIS_PORT"
+    else
+        echo "🔴 Redis: Container at localhost:$REDIS_PORT"
+    fi
     echo "🔧 Configuration: $APPDATA_PATH/.env"
     echo "📋 Logs: docker logs forecast-app"
     echo ""
