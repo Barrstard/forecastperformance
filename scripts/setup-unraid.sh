@@ -70,6 +70,27 @@ else
     exit 1
 fi
 
+# Check for port conflicts first
+print_step "Checking for port conflicts..."
+
+# Check PostgreSQL port (5432)
+if netstat -tuln | grep -q ":5432 "; then
+    print_warning "Port 5432 (PostgreSQL) is already in use"
+    read -p "Enter alternative PostgreSQL port (default: 5433): " POSTGRES_PORT
+    POSTGRES_PORT=${POSTGRES_PORT:-5433}
+else
+    POSTGRES_PORT=5432
+fi
+
+# Check Redis port (6379)  
+if netstat -tuln | grep -q ":6379 "; then
+    print_warning "Port 6379 (Redis) is already in use"
+    read -p "Enter alternative Redis port (default: 6380): " REDIS_PORT
+    REDIS_PORT=${REDIS_PORT:-6380}
+else
+    REDIS_PORT=6379
+fi
+
 # Create .env file if it doesn't exist
 if [ ! -f ".env" ]; then
     print_step "Setting up environment configuration..."
@@ -104,27 +125,6 @@ if [ ! -f ".env" ]; then
     read -p "Enter port for web interface (default: 3000): " USER_PORT
     WEB_PORT=${USER_PORT:-3000}
     
-    # Check for port conflicts and suggest alternatives
-    print_step "Checking for port conflicts..."
-    
-    # Check PostgreSQL port (5432)
-    if netstat -tuln | grep -q ":5432 "; then
-        print_warning "Port 5432 (PostgreSQL) is already in use"
-        read -p "Enter alternative PostgreSQL port (default: 5433): " POSTGRES_PORT
-        POSTGRES_PORT=${POSTGRES_PORT:-5433}
-    else
-        POSTGRES_PORT=5432
-    fi
-    
-    # Check Redis port (6379)  
-    if netstat -tuln | grep -q ":6379 "; then
-        print_warning "Port 6379 (Redis) is already in use"
-        read -p "Enter alternative Redis port (default: 6380): " REDIS_PORT
-        REDIS_PORT=${REDIS_PORT:-6380}
-    else
-        REDIS_PORT=6379
-    fi
-    
     # Check Web port
     if netstat -tuln | grep -q ":$WEB_PORT "; then
         print_warning "Port $WEB_PORT is already in use"
@@ -138,25 +138,36 @@ if [ ! -f ".env" ]; then
     sed -i "s/your-unraid-ip/$UNRAID_IP/g" .env
     sed -i "s/3000/$WEB_PORT/g" .env
     
-    # Update docker-compose ports
-    if [ "$WEB_PORT" != "3000" ]; then
-        sed -i "s/3000:3000/$WEB_PORT:3000/g" docker-compose.yml
-    fi
-    
-    if [ "$POSTGRES_PORT" != "5432" ]; then
-        sed -i "s/5432:5432/$POSTGRES_PORT:5432/g" docker-compose.yml
-    fi
-    
-    if [ "$REDIS_PORT" != "6379" ]; then
-        sed -i "s/6379:6379/$REDIS_PORT:6379/g" docker-compose.yml
-    fi
-    
     print_success "Environment configured"
     echo -e "${YELLOW}Your app will be available at: http://$UNRAID_IP:$WEB_PORT${NC}"
 else
     print_success "Using existing .env file"
     UNRAID_IP=$(grep NEXTAUTH_URL .env | cut -d'/' -f3 | cut -d':' -f1)
     WEB_PORT=$(grep NEXTAUTH_URL .env | cut -d':' -f3 || echo "3000")
+    
+    # Still check web port for conflicts
+    if netstat -tuln | grep -q ":$WEB_PORT "; then
+        print_warning "Port $WEB_PORT is already in use"
+        read -p "Enter alternative web port: " ALT_WEB_PORT
+        WEB_PORT=${ALT_WEB_PORT:-$((WEB_PORT + 1))}
+        # Update the existing .env file
+        sed -i "s/:$WEB_PORT/:$WEB_PORT/g" .env
+    fi
+fi
+
+# Update docker-compose ports (always run this)
+print_step "Updating docker-compose configuration..."
+
+if [ "$WEB_PORT" != "3000" ]; then
+    sed -i "s/3000:3000/$WEB_PORT:3000/g" docker-compose.yml
+fi
+
+if [ "$POSTGRES_PORT" != "5432" ]; then
+    sed -i "s/5432:5432/$POSTGRES_PORT:5432/g" docker-compose.yml
+fi
+
+if [ "$REDIS_PORT" != "6379" ]; then
+    sed -i "s/6379:6379/$REDIS_PORT:6379/g" docker-compose.yml
 fi
 
 # Check for docker-compose and install if needed
