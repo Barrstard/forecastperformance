@@ -8,6 +8,9 @@
     "lint": "next lint",
     "start": "next start"
   },
+  "pnpm": {
+    "ignoredBuiltDependencies": ["puppeteer"]
+  },
   "dependencies": {
     "@composio/mcp": "^1.0.7",
     "@google-cloud/bigquery": "^8.1.1",
