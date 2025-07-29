@@ -211,21 +211,21 @@ else
             print_warning "Invalid port '$WEB_PORT', using default 3000"
             WEB_PORT="3000"
         fi
-    
-    # Still check web port for conflicts
-    if netstat -tuln | grep -q ":$WEB_PORT "; then
-        print_warning "Port $WEB_PORT is already in use"
-        read -p "Enter alternative web port: " ALT_WEB_PORT
-        NEW_WEB_PORT=${ALT_WEB_PORT:-$((WEB_PORT + 1))}
-        # Update the existing .env file - fix the sed command
-        OLD_URL="http://$UNRAID_IP:$WEB_PORT"
-        NEW_URL="http://$UNRAID_IP:$NEW_WEB_PORT"
-        # Escape special characters for sed
-        OLD_URL_ESCAPED=$(printf '%s\n' "$OLD_URL" | sed 's/[[\.*^$()+?{|]/\\&/g')
-        NEW_URL_ESCAPED=$(printf '%s\n' "$NEW_URL" | sed 's/[[\.*^$()+?{|]/\\&/g')
-        sed -i "s|NEXTAUTH_URL=$OLD_URL_ESCAPED|NEXTAUTH_URL=$NEW_URL_ESCAPED|g" .env
-        WEB_PORT="$NEW_WEB_PORT"
-    fi
+        
+        # Still check web port for conflicts
+        if netstat -tuln | grep -q ":$WEB_PORT "; then
+            print_warning "Port $WEB_PORT is already in use"
+            read -p "Enter alternative web port: " ALT_WEB_PORT
+            NEW_WEB_PORT=${ALT_WEB_PORT:-$((WEB_PORT + 1))}
+            # Update the existing .env file - fix the sed command
+            OLD_URL="http://$UNRAID_IP:$WEB_PORT"
+            NEW_URL="http://$UNRAID_IP:$NEW_WEB_PORT"
+            # Escape special characters for sed
+            OLD_URL_ESCAPED=$(printf '%s\n' "$OLD_URL" | sed 's/[[\.*^$()+?{|]/\\&/g')
+            NEW_URL_ESCAPED=$(printf '%s\n' "$NEW_URL" | sed 's/[[\.*^$()+?{|]/\\&/g')
+            sed -i "s|NEXTAUTH_URL=$OLD_URL_ESCAPED|NEXTAUTH_URL=$NEW_URL_ESCAPED|g" .env
+            WEB_PORT="$NEW_WEB_PORT"
+        fi
     else
         # .env was corrupted, need to set it up interactively
         print_step "Setting up environment configuration..."
@@ -268,7 +268,7 @@ else
         
         print_success "Environment configured"
         echo -e "${YELLOW}Your app will be available at: http://$UNRAID_IP:$WEB_PORT${NC}"
-    fi
+fi
 fi
 
 # Create dynamic docker-compose configuration only if needed
