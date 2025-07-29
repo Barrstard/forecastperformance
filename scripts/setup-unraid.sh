@@ -184,16 +184,14 @@ fi
 # Create dynamic docker-compose configuration
 print_step "Creating docker-compose configuration..."
 
-# Start with base compose file
-cat > docker-compose.yml << EOF
-version: '3.8'
+# Build the complete docker-compose content
+COMPOSE_CONTENT="version: '3.8'
 
-services:
-EOF
+services:"
 
 # Add PostgreSQL service if not external
 if [ "$POSTGRES_EXTERNAL" = false ]; then
-    cat >> docker-compose.yml << EOF
+    COMPOSE_CONTENT="$COMPOSE_CONTENT
   postgres:
     image: postgres:15-alpine
     container_name: forecast-postgres
@@ -205,21 +203,20 @@ if [ "$POSTGRES_EXTERNAL" = false ]; then
     volumes:
       - /mnt/user/appdata/forecast-performance/postgres:/var/lib/postgresql/data
     ports:
-      - "$POSTGRES_PORT:5432"
+      - \"$POSTGRES_PORT:5432\"
     networks:
       - forecast-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+      test: [\"CMD-SHELL\", \"pg_isready -U $POSTGRES_USER -d $POSTGRES_DB\"]
       interval: 30s
       timeout: 10s
       retries: 3
-
-EOF
+"
 fi
 
 # Add Redis service if not external
 if [ "$REDIS_EXTERNAL" = false ]; then
-    cat >> docker-compose.yml << EOF
+    COMPOSE_CONTENT="$COMPOSE_CONTENT
   redis:
     image: redis:7-alpine
     container_name: forecast-redis
@@ -228,41 +225,42 @@ if [ "$REDIS_EXTERNAL" = false ]; then
     volumes:
       - /mnt/user/appdata/forecast-performance/redis:/data
     ports:
-      - "$REDIS_PORT:6379"
+      - \"$REDIS_PORT:6379\"
     networks:
       - forecast-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [\"CMD\", \"redis-cli\", \"ping\"]
       interval: 30s
       timeout: 10s
       retries: 3
-
-EOF
+"
 fi
 
 # Add app service (always included)
-cat >> docker-compose.yml << EOF
+COMPOSE_CONTENT="$COMPOSE_CONTENT
   app:
     image: ghcr.io/barrstard/forecastperformance:latest
     container_name: forecast-app
-    restart: unless-stopped
-EOF
+    restart: unless-stopped"
 
 # Add depends_on only for containerized services  
 if [ "$POSTGRES_EXTERNAL" = false ] || [ "$REDIS_EXTERNAL" = false ]; then
-    echo "    depends_on:" >> docker-compose.yml
+    COMPOSE_CONTENT="$COMPOSE_CONTENT
+    depends_on:"
     if [ "$POSTGRES_EXTERNAL" = false ]; then
-        echo "      postgres:" >> docker-compose.yml
-        echo "        condition: service_healthy" >> docker-compose.yml
+        COMPOSE_CONTENT="$COMPOSE_CONTENT
+      postgres:
+        condition: service_healthy"
     fi
     if [ "$REDIS_EXTERNAL" = false ]; then
-        echo "      redis:" >> docker-compose.yml
-        echo "        condition: service_healthy" >> docker-compose.yml
+        COMPOSE_CONTENT="$COMPOSE_CONTENT
+      redis:
+        condition: service_healthy"
     fi
 fi
 
 # Continue with app configuration
-cat >> docker-compose.yml << EOF
+COMPOSE_CONTENT="$COMPOSE_CONTENT
     environment:
       DATABASE_URL: postgresql://$POSTGRES_USER:\${POSTGRES_PASSWORD}@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB
       REDIS_URL: redis://$REDIS_HOST:$REDIS_PORT
@@ -273,7 +271,7 @@ cat >> docker-compose.yml << EOF
       - /mnt/user/appdata/forecast-performance/uploads:/app/uploads
       - /mnt/user/appdata/forecast-performance/logs:/app/logs
     ports:
-      - "$WEB_PORT:3000"
+      - \"$WEB_PORT:3000\"
     networks:
       - forecast-network
 
@@ -283,8 +281,10 @@ networks:
 
 volumes:
   postgres_data:
-    driver: local
-EOF
+    driver: local"
+
+# Write the complete compose file
+echo "$COMPOSE_CONTENT" > docker-compose.yml
 
 print_success "Docker Compose configuration created"
 
