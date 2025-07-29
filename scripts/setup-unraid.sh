@@ -104,15 +104,51 @@ if [ ! -f ".env" ]; then
     read -p "Enter port for web interface (default: 3000): " USER_PORT
     WEB_PORT=${USER_PORT:-3000}
     
+    # Check for port conflicts and suggest alternatives
+    print_step "Checking for port conflicts..."
+    
+    # Check PostgreSQL port (5432)
+    if netstat -tuln | grep -q ":5432 "; then
+        print_warning "Port 5432 (PostgreSQL) is already in use"
+        read -p "Enter alternative PostgreSQL port (default: 5433): " POSTGRES_PORT
+        POSTGRES_PORT=${POSTGRES_PORT:-5433}
+    else
+        POSTGRES_PORT=5432
+    fi
+    
+    # Check Redis port (6379)  
+    if netstat -tuln | grep -q ":6379 "; then
+        print_warning "Port 6379 (Redis) is already in use"
+        read -p "Enter alternative Redis port (default: 6380): " REDIS_PORT
+        REDIS_PORT=${REDIS_PORT:-6380}
+    else
+        REDIS_PORT=6379
+    fi
+    
+    # Check Web port
+    if netstat -tuln | grep -q ":$WEB_PORT "; then
+        print_warning "Port $WEB_PORT is already in use"
+        read -p "Enter alternative web port: " ALT_WEB_PORT
+        WEB_PORT=${ALT_WEB_PORT:-$((WEB_PORT + 1))}
+    fi
+    
     # Update .env file
     sed -i "s/your_secure_postgres_password_here/$POSTGRES_PASSWORD/g" .env
     sed -i "s/your_nextauth_secret_here/$NEXTAUTH_SECRET/g" .env
     sed -i "s/your-unraid-ip/$UNRAID_IP/g" .env
     sed -i "s/3000/$WEB_PORT/g" .env
     
-    # Update docker-compose port if needed
+    # Update docker-compose ports
     if [ "$WEB_PORT" != "3000" ]; then
         sed -i "s/3000:3000/$WEB_PORT:3000/g" docker-compose.yml
+    fi
+    
+    if [ "$POSTGRES_PORT" != "5432" ]; then
+        sed -i "s/5432:5432/$POSTGRES_PORT:5432/g" docker-compose.yml
+    fi
+    
+    if [ "$REDIS_PORT" != "6379" ]; then
+        sed -i "s/6379:6379/$REDIS_PORT:6379/g" docker-compose.yml
     fi
     
     print_success "Environment configured"
@@ -163,7 +199,15 @@ if docker-compose ps | grep -q "Up"; then
     echo ""
     echo "🎉 Deployment Complete!"
     echo "======================="
-    echo "📱 Access your app at: http://$UNRAID_IP:3000"
+    
+    # Get actual ports from existing .env or use defaults
+    ACTUAL_WEB_PORT=$(grep NEXTAUTH_URL .env | cut -d':' -f3 || echo "3000")
+    ACTUAL_POSTGRES_PORT=$(docker-compose ps | grep postgres | grep -o "[0-9]*:5432" | cut -d':' -f1 || echo "5432")
+    ACTUAL_REDIS_PORT=$(docker-compose ps | grep redis | grep -o "[0-9]*:6379" | cut -d':' -f1 || echo "6379")
+    
+    echo "📱 Access your app at: http://$UNRAID_IP:$ACTUAL_WEB_PORT"
+    echo "🗄️  PostgreSQL: localhost:$ACTUAL_POSTGRES_PORT"
+    echo "🔴 Redis: localhost:$ACTUAL_REDIS_PORT"
     echo "🔧 Configuration: $APPDATA_PATH/.env"
     echo "📋 Logs: docker logs forecast-app"
     echo ""
