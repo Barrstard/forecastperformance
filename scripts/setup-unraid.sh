@@ -122,10 +122,10 @@ fi
 
 # Pull and start containers
 print_step "Pulling Docker images..."
-docker-compose pull
+docker compose pull
 
 print_step "Starting containers..."
-docker-compose up -d
+docker compose up -d
 
 # Wait for database to be ready
 print_step "Waiting for database to be ready..."
@@ -141,7 +141,7 @@ fi
 
 # Final status check
 print_step "Checking container status..."
-if docker-compose ps | grep -q "Up"; then
+if docker compose ps | grep -q "Up"; then
     print_success "Containers are running!"
     echo ""
     echo "🎉 Deployment Complete!"
