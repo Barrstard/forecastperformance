@@ -6,8 +6,8 @@ services:
     container_name: forecast-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: forecastperformance
-      POSTGRES_USER: forecast_user
+      POSTGRES_DB: sales
+      POSTGRES_USER: gbarr1
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - /mnt/user/appdata/forecast-performance/postgres:/var/lib/postgresql/data
@@ -16,7 +16,7 @@ services:
     networks:
       - forecast-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U forecast_user -d forecastperformance"]
+      test: ["CMD-SHELL", "pg_isready -U gbarr1 -d sales"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -48,7 +48,7 @@ services:
       redis:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://forecast_user:${POSTGRES_PASSWORD}@postgres:5432/forecastperformance
+      DATABASE_URL: postgresql://gbarr1:${POSTGRES_PASSWORD}@postgres:5432/sales
       REDIS_URL: redis://redis:6379
       NEXTAUTH_URL: ${NEXTAUTH_URL}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}

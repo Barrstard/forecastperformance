@@ -220,7 +220,10 @@ else
         # Update the existing .env file - fix the sed command
         OLD_URL="http://$UNRAID_IP:$WEB_PORT"
         NEW_URL="http://$UNRAID_IP:$NEW_WEB_PORT"
-        sed -i "s|NEXTAUTH_URL=$OLD_URL|NEXTAUTH_URL=$NEW_URL|g" .env
+        # Escape special characters for sed
+        OLD_URL_ESCAPED=$(printf '%s\n' "$OLD_URL" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        NEW_URL_ESCAPED=$(printf '%s\n' "$NEW_URL" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        sed -i "s|NEXTAUTH_URL=$OLD_URL_ESCAPED|NEXTAUTH_URL=$NEW_URL_ESCAPED|g" .env
         WEB_PORT="$NEW_WEB_PORT"
     fi
     else
