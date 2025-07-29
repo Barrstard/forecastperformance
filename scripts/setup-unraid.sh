@@ -174,8 +174,36 @@ if [ ! -f ".env" ]; then
     echo -e "${YELLOW}Your app will be available at: http://$UNRAID_IP:$WEB_PORT${NC}"
 else
     print_success "Using existing .env file"
-    UNRAID_IP=$(grep NEXTAUTH_URL .env | cut -d'/' -f3 | cut -d':' -f1)
-    WEB_PORT=$(grep NEXTAUTH_URL .env | cut -d':' -f3 || echo "3000")
+    
+    # Debug: Show relevant .env content
+    print_step "Debug - Checking NEXTAUTH_URL in .env:"
+    if [ -f ".env" ]; then
+        grep NEXTAUTH_URL .env || echo "No NEXTAUTH_URL found in .env"
+    else
+        echo ".env file not found"
+    fi
+    
+    NEXTAUTH_LINE=$(grep NEXTAUTH_URL .env 2>/dev/null || echo "")
+    echo "NEXTAUTH_LINE: '$NEXTAUTH_LINE'"
+    
+    UNRAID_IP=$(echo "$NEXTAUTH_LINE" | cut -d'/' -f3 | cut -d':' -f1)
+    echo "Extracted UNRAID_IP: '$UNRAID_IP'"
+    
+    # More robust WEB_PORT extraction
+    WEB_PORT_RAW=$(echo "$NEXTAUTH_LINE" | cut -d':' -f3)
+    if [ -z "$WEB_PORT_RAW" ]; then
+        WEB_PORT="3000"
+        echo "No port in NEXTAUTH_URL, using default: $WEB_PORT"
+    else
+        WEB_PORT="$WEB_PORT_RAW"
+        echo "Extracted WEB_PORT: '$WEB_PORT'"
+    fi
+    
+    # Validate WEB_PORT is numeric
+    if ! [[ "$WEB_PORT" =~ ^[0-9]+$ ]]; then
+        print_warning "Invalid port '$WEB_PORT', using default 3000"
+        WEB_PORT="3000"
+    fi
     
     # Still check web port for conflicts
     if netstat -tuln | grep -q ":$WEB_PORT "; then
@@ -190,6 +218,18 @@ fi
 # Create dynamic docker-compose configuration only if needed
 if [ "$POSTGRES_EXTERNAL" = true ] || [ "$REDIS_EXTERNAL" = true ]; then
     print_step "Creating dynamic docker-compose configuration..."
+
+    # Debug: Show variable values
+    print_step "Debug - Variable values:"
+    echo "POSTGRES_EXTERNAL=$POSTGRES_EXTERNAL"
+    echo "REDIS_EXTERNAL=$REDIS_EXTERNAL"
+    echo "POSTGRES_HOST=$POSTGRES_HOST"
+    echo "POSTGRES_PORT=$POSTGRES_PORT"
+    echo "POSTGRES_USER=$POSTGRES_USER"
+    echo "POSTGRES_DB=$POSTGRES_DB"
+    echo "REDIS_HOST=$REDIS_HOST"
+    echo "REDIS_PORT=$REDIS_PORT"
+    echo "WEB_PORT=$WEB_PORT"
 
     # Build the complete docker-compose content
 COMPOSE_CONTENT="version: '3.8'
@@ -298,6 +338,26 @@ volumes:
 
     # Write the complete compose file
     echo "$COMPOSE_CONTENT" > docker-compose.yml
+
+    # Debug: Show the generated YAML content
+    print_step "Generated docker-compose.yml content:"
+    echo "--- BEGIN YAML ---"
+    cat docker-compose.yml
+    echo "--- END YAML ---"
+    
+    # Validate YAML syntax before proceeding
+    print_step "Validating YAML syntax..."
+    if command -v python3 &> /dev/null; then
+        if python3 -c "import yaml; yaml.safe_load(open('docker-compose.yml'))" 2>/dev/null; then
+            print_success "YAML syntax is valid"
+        else
+            print_error "YAML syntax validation failed!"
+            python3 -c "import yaml; yaml.safe_load(open('docker-compose.yml'))" 2>&1 || true
+            exit 1
+        fi
+    else
+        print_warning "Python3 not available for YAML validation"
+    fi
 
     print_success "Dynamic Docker Compose configuration created"
 else
