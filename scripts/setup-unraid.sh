@@ -10,7 +10,7 @@ echo "======================================"
 
 # Configuration
 APPDATA_PATH="/mnt/user/appdata/forecast-performance"
-REPO_URL="https://raw.githubusercontent.com/Barrstard/forecastperformance/main"
+REPO_URL="https://raw.githubusercontent.com/Barrstard/forecastperformance/master"
 
 # Color codes for output
 RED='\033[0;31m'
