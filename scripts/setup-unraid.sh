@@ -81,24 +81,17 @@ POSTGRES_USER="gbarr1"
 POSTGRES_DB="sales"
 
 if netstat -tuln | grep -q ":5432 "; then
-    print_warning "PostgreSQL detected on port 5432"
-    read -p "Use existing PostgreSQL instance? (y/N): " USE_EXISTING_PG
-    if [[ "$USE_EXISTING_PG" =~ ^[Yy]$ ]]; then
-        POSTGRES_EXTERNAL=true
-        read -p "PostgreSQL host (default: localhost): " PG_HOST_INPUT
-        POSTGRES_HOST=${PG_HOST_INPUT:-localhost}
-        read -p "PostgreSQL port (default: 5432): " PG_PORT_INPUT
-        POSTGRES_PORT=${PG_PORT_INPUT:-5432}
-        read -p "PostgreSQL username (default: gbarr1): " PG_USER_INPUT
-        POSTGRES_USER=${PG_USER_INPUT:-gbarr1}
-        read -p "PostgreSQL database name (default: sales): " PG_DB_INPUT
-        POSTGRES_DB=${PG_DB_INPUT:-sales}
-        print_success "Will use external PostgreSQL at $POSTGRES_HOST:$POSTGRES_PORT"
-    else
-        print_warning "Will deploy PostgreSQL in container on alternative port"
-        read -p "Enter PostgreSQL container port (default: 5433): " POSTGRES_PORT
-        POSTGRES_PORT=${POSTGRES_PORT:-5433}
-        POSTGRES_HOST="postgres"
+    print_success "PostgreSQL detected on port 5432 - will use existing service"
+    POSTGRES_EXTERNAL=true
+    POSTGRES_HOST="localhost"
+    POSTGRES_PORT=5432
+    # Keep default user/db or get from existing .env if available
+    if [ -f ".env" ]; then
+        EXISTING_DB_URL=$(grep "DATABASE_URL" .env 2>/dev/null || echo "")
+        if [ ! -z "$EXISTING_DB_URL" ]; then
+            POSTGRES_USER=$(echo "$EXISTING_DB_URL" | sed 's/.*:\/\/\([^:]*\):.*/\1/')
+            POSTGRES_DB=$(echo "$EXISTING_DB_URL" | sed 's/.*\/\([^?]*\).*/\1/')
+        fi
     fi
 else
     print_success "No PostgreSQL detected - will deploy in container"
@@ -110,21 +103,10 @@ REDIS_HOST="redis"
 REDIS_PORT=6379
 
 if netstat -tuln | grep -q ":6379 "; then
-    print_warning "Redis detected on port 6379"
-    read -p "Use existing Redis instance? (y/N): " USE_EXISTING_REDIS
-    if [[ "$USE_EXISTING_REDIS" =~ ^[Yy]$ ]]; then
-        REDIS_EXTERNAL=true
-        read -p "Redis host (default: localhost): " REDIS_HOST_INPUT
-        REDIS_HOST=${REDIS_HOST_INPUT:-localhost}
-        read -p "Redis port (default: 6379): " REDIS_PORT_INPUT
-        REDIS_PORT=${REDIS_PORT_INPUT:-6379}
-        print_success "Will use external Redis at $REDIS_HOST:$REDIS_PORT"
-    else
-        print_warning "Will deploy Redis in container on alternative port"
-        read -p "Enter Redis container port (default: 6380): " REDIS_PORT
-        REDIS_PORT=${REDIS_PORT:-6380}
-        REDIS_HOST="redis"
-    fi
+    print_success "Redis detected on port 6379 - will use existing service"
+    REDIS_EXTERNAL=true
+    REDIS_HOST="localhost"
+    REDIS_PORT=6379
 else
     print_success "No Redis detected - will deploy in container"
 fi
@@ -268,20 +250,14 @@ EOF
 
 # Add depends_on only for containerized services  
 if [ "$POSTGRES_EXTERNAL" = false ] || [ "$REDIS_EXTERNAL" = false ]; then
-    cat >> docker-compose.yml << EOF
-    depends_on:
-EOF
+    echo "    depends_on:" >> docker-compose.yml
     if [ "$POSTGRES_EXTERNAL" = false ]; then
-        cat >> docker-compose.yml << EOF
-      postgres:
-        condition: service_healthy
-EOF
+        echo "      postgres:" >> docker-compose.yml
+        echo "        condition: service_healthy" >> docker-compose.yml
     fi
     if [ "$REDIS_EXTERNAL" = false ]; then
-        cat >> docker-compose.yml << EOF
-      redis:
-        condition: service_healthy
-EOF
+        echo "      redis:" >> docker-compose.yml
+        echo "        condition: service_healthy" >> docker-compose.yml
     fi
 fi
 
