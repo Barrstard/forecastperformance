@@ -78,10 +78,17 @@ if netstat -tuln | grep -q ":5432 "; then
     if [ -f ".env" ]; then
         EXISTING_DB_URL=$(grep "DATABASE_URL" .env 2>/dev/null || echo "")
         if [ ! -z "$EXISTING_DB_URL" ]; then
-            POSTGRES_USER=$(echo "$EXISTING_DB_URL" | sed 's/.*:\/\/\([^:]*\):.*/\1/')
-            POSTGRES_DB=$(echo "$EXISTING_DB_URL" | sed 's/.*\/\([^?]*\).*/\1/')
+            EXTRACTED_USER=$(echo "$EXISTING_DB_URL" | sed 's/.*:\/\/\([^:]*\):.*/\1/')
+            EXTRACTED_DB=$(echo "$EXISTING_DB_URL" | sed 's/.*\/\([^?]*\).*/\1/')
+            if [ ! -z "$EXTRACTED_USER" ] && [ "$EXTRACTED_USER" != "DATABASE_URL" ]; then
+                POSTGRES_USER="$EXTRACTED_USER"
+            fi
+            if [ ! -z "$EXTRACTED_DB" ] && [ "$EXTRACTED_DB" != "$EXISTING_DB_URL" ]; then
+                POSTGRES_DB="$EXTRACTED_DB"
+            fi
         fi
     fi
+    echo "Using PostgreSQL: $POSTGRES_USER@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB"
 else
     print_success "No PostgreSQL detected - will deploy in container"
 fi
@@ -175,61 +182,95 @@ if [ ! -f ".env" ]; then
 else
     print_success "Using existing .env file"
     
-    # Debug: Show relevant .env content
-    print_step "Debug - Checking NEXTAUTH_URL in .env:"
-    if [ -f ".env" ]; then
-        grep NEXTAUTH_URL .env || echo "No NEXTAUTH_URL found in .env"
+    # Check if .env file is corrupted (contains shell script code)
+    if grep -q "print_step\|echo\|if\|fi" .env 2>/dev/null; then
+        print_warning ".env file appears to be corrupted - will recreate it"
+        mv .env .env.backup.$(date +%s)
+        cp .env.template .env
+        print_step "Corrupted .env backed up, using template for configuration"
+        # Fall through to interactive configuration
+        CORRUPTED_ENV=true
     else
-        echo ".env file not found"
+        CORRUPTED_ENV=false
     fi
     
-    NEXTAUTH_LINE=$(grep NEXTAUTH_URL .env 2>/dev/null || echo "")
-    echo "NEXTAUTH_LINE: '$NEXTAUTH_LINE'"
-    
-    UNRAID_IP=$(echo "$NEXTAUTH_LINE" | cut -d'/' -f3 | cut -d':' -f1)
-    echo "Extracted UNRAID_IP: '$UNRAID_IP'"
-    
-    # More robust WEB_PORT extraction
-    WEB_PORT_RAW=$(echo "$NEXTAUTH_LINE" | cut -d':' -f3)
-    if [ -z "$WEB_PORT_RAW" ]; then
-        WEB_PORT="3000"
-        echo "No port in NEXTAUTH_URL, using default: $WEB_PORT"
-    else
-        WEB_PORT="$WEB_PORT_RAW"
-        echo "Extracted WEB_PORT: '$WEB_PORT'"
-    fi
-    
-    # Validate WEB_PORT is numeric
-    if ! [[ "$WEB_PORT" =~ ^[0-9]+$ ]]; then
-        print_warning "Invalid port '$WEB_PORT', using default 3000"
-        WEB_PORT="3000"
-    fi
+    if [ "$CORRUPTED_ENV" = false ]; then
+        NEXTAUTH_LINE=$(grep NEXTAUTH_URL .env 2>/dev/null || echo "")
+        UNRAID_IP=$(echo "$NEXTAUTH_LINE" | cut -d'/' -f3 | cut -d':' -f1)
+        
+        # More robust WEB_PORT extraction
+        WEB_PORT_RAW=$(echo "$NEXTAUTH_LINE" | cut -d':' -f3)
+        if [ -z "$WEB_PORT_RAW" ]; then
+            WEB_PORT="3000"
+        else
+            WEB_PORT="$WEB_PORT_RAW"
+        fi
+        
+        # Validate WEB_PORT is numeric
+        if ! [[ "$WEB_PORT" =~ ^[0-9]+$ ]]; then
+            print_warning "Invalid port '$WEB_PORT', using default 3000"
+            WEB_PORT="3000"
+        fi
     
     # Still check web port for conflicts
     if netstat -tuln | grep -q ":$WEB_PORT "; then
         print_warning "Port $WEB_PORT is already in use"
         read -p "Enter alternative web port: " ALT_WEB_PORT
-        WEB_PORT=${ALT_WEB_PORT:-$((WEB_PORT + 1))}
-        # Update the existing .env file
-        sed -i "s/:$WEB_PORT/:$WEB_PORT/g" .env
+        NEW_WEB_PORT=${ALT_WEB_PORT:-$((WEB_PORT + 1))}
+        # Update the existing .env file - fix the sed command
+        OLD_URL="http://$UNRAID_IP:$WEB_PORT"
+        NEW_URL="http://$UNRAID_IP:$NEW_WEB_PORT"
+        sed -i "s|NEXTAUTH_URL=$OLD_URL|NEXTAUTH_URL=$NEW_URL|g" .env
+        WEB_PORT="$NEW_WEB_PORT"
+    fi
+    else
+        # .env was corrupted, need to set it up interactively
+        print_step "Setting up environment configuration..."
+        
+        # Get Unraid IP (auto-detect with option to override)
+        DETECTED_IP=$(ip route get 1 | awk '{print $7}' | head -1 2>/dev/null || echo "192.168.1.100")
+        echo -e "${BLUE}Detected Unraid IP: $DETECTED_IP${NC}"
+        read -p "Press Enter to use detected IP, or enter your Unraid server IP: " USER_IP
+        UNRAID_IP=${USER_IP:-$DETECTED_IP}
+        
+        # Database password
+        echo ""
+        read -p "Enter PostgreSQL password (or press Enter for auto-generated): " USER_DB_PASSWORD
+        if [ -z "$USER_DB_PASSWORD" ]; then
+            POSTGRES_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
+            echo -e "${GREEN}Generated secure password${NC}"
+        else
+            POSTGRES_PASSWORD="$USER_DB_PASSWORD"
+        fi
+        
+        # NextAuth secret
+        NEXTAUTH_SECRET=$(openssl rand -base64 32)
+        
+        # Port configuration
+        echo ""
+        read -p "Enter port for web interface (default: 3000): " USER_PORT
+        WEB_PORT=${USER_PORT:-3000}
+        
+        # Update .env file with detected configurations
+        sed -i "s/your_secure_postgres_password_here/$POSTGRES_PASSWORD/g" .env
+        sed -i "s/your_nextauth_secret_here/$NEXTAUTH_SECRET/g" .env
+        sed -i "s/your-unraid-ip/$UNRAID_IP/g" .env
+        sed -i "s/3000/$WEB_PORT/g" .env
+        
+        # Update database connection string
+        sed -i "s|postgresql://gbarr1:your_secure_postgres_password_here@postgres:5432/sales|postgresql://$POSTGRES_USER:$POSTGRES_PASSWORD@$POSTGRES_HOST:$POSTGRES_PORT/$POSTGRES_DB|g" .env
+        
+        # Update Redis URL  
+        sed -i "s|redis://redis:6379|redis://$REDIS_HOST:$REDIS_PORT|g" .env
+        
+        print_success "Environment configured"
+        echo -e "${YELLOW}Your app will be available at: http://$UNRAID_IP:$WEB_PORT${NC}"
     fi
 fi
 
 # Create dynamic docker-compose configuration only if needed
 if [ "$POSTGRES_EXTERNAL" = true ] || [ "$REDIS_EXTERNAL" = true ]; then
     print_step "Creating dynamic docker-compose configuration..."
-
-    # Debug: Show variable values
-    print_step "Debug - Variable values:"
-    echo "POSTGRES_EXTERNAL=$POSTGRES_EXTERNAL"
-    echo "REDIS_EXTERNAL=$REDIS_EXTERNAL"
-    echo "POSTGRES_HOST=$POSTGRES_HOST"
-    echo "POSTGRES_PORT=$POSTGRES_PORT"
-    echo "POSTGRES_USER=$POSTGRES_USER"
-    echo "POSTGRES_DB=$POSTGRES_DB"
-    echo "REDIS_HOST=$REDIS_HOST"
-    echo "REDIS_PORT=$REDIS_PORT"
-    echo "WEB_PORT=$WEB_PORT"
 
     # Build the complete docker-compose content
 COMPOSE_CONTENT="version: '3.8'
@@ -338,26 +379,6 @@ volumes:
 
     # Write the complete compose file
     echo "$COMPOSE_CONTENT" > docker-compose.yml
-
-    # Debug: Show the generated YAML content
-    print_step "Generated docker-compose.yml content:"
-    echo "--- BEGIN YAML ---"
-    cat docker-compose.yml
-    echo "--- END YAML ---"
-    
-    # Validate YAML syntax before proceeding
-    print_step "Validating YAML syntax..."
-    if command -v python3 &> /dev/null; then
-        if python3 -c "import yaml; yaml.safe_load(open('docker-compose.yml'))" 2>/dev/null; then
-            print_success "YAML syntax is valid"
-        else
-            print_error "YAML syntax validation failed!"
-            python3 -c "import yaml; yaml.safe_load(open('docker-compose.yml'))" 2>&1 || true
-            exit 1
-        fi
-    else
-        print_warning "Python3 not available for YAML validation"
-    fi
 
     print_success "Dynamic Docker Compose configuration created"
 else
